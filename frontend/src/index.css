@@ -576,8 +576,27 @@ body {
 }
 .history-details {
   display: flex;
-  gap: 15px;
+  gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Custom Scrollbar */
+.custom-scroll {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+.custom-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1); 
+  border-radius: 10px;
+}
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3); 
+  border-radius: 10px;
 }
 
 /* Mobile Adjustments for Fullscreen */
@@ -588,10 +607,13 @@ body {
   .history-item {
     flex-direction: column;
     align-items: flex-start;
-    gap: 10px;
+    gap: 12px;
   }
   .history-details {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-start;
+  }
+  .custom-scroll {
+    max-height: 50vh;
   }
 }

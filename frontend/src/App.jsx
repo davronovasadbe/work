@@ -448,7 +448,7 @@ function App() {
                   {selectedWorker.logs.length === 0 ? (
                       <div style={{ color: '#94a3b8', textAlign: 'center', padding: '20px' }}>Hech qanday tarix yo'q</div>
                   ) : (
-                      <div className="history-list">
+                      <div className="history-list custom-scroll">
                           {selectedWorker.logs.map(log => (
                               <div key={log.id} className="history-item">
                                   <div className="history-date">
@@ -456,11 +456,14 @@ function App() {
                                   </div>
                                   <div className="history-details">
                                       {log.status === 'kelmadi' ? (
-                                          <span style={{ color: '#ef4444', fontWeight: 'bold' }}>Kelmadi</span>
+                                          <span style={{ color: '#ef4444', fontWeight: 'bold', padding: '4px 10px', background: 'rgba(239,68,68,0.1)', borderRadius: 8 }}>Kelmadi</span>
                                       ) : (
                                           <>
-                                            <span style={{ color: '#94a3b8' }}>{log.start_time} - {log.end_time}</span>
-                                            <span style={{ fontWeight: 'bold', color: '#60a5fa' }}>{log.hours} soat</span>
+                                            <span style={{ color: '#94a3b8', fontSize: '0.9rem' }}>{log.start_time} - {log.end_time}</span>
+                                            <span style={{ fontWeight: 'bold', color: '#60a5fa', background: 'rgba(96,165,250,0.1)', padding: '4px 10px', borderRadius: 8 }}>{log.hours} soat</span>
+                                            <span style={{ fontWeight: 'bold', color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '4px 10px', borderRadius: 8 }}>
+                                                {((log.hours || 0) * (selectedWorker.hourlyRate || 20000)).toLocaleString()} so'm
+                                            </span>
                                           </>
                                       )}
                                   </div>
