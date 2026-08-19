@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CheckCircle, X, Search, Eye, EyeOff, Plus, ArrowLeft, Pencil, Trash2 } from 'lucide-react';
-import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { CheckCircle, X, Search, Eye, EyeOff, Plus, ArrowLeft, Pencil, Trash2, ChevronLeft, UserX, Clock } from 'lucide-react';
 
 const Toast = ({ message, type = 'success', onClose }) => (
   <div className={`toast ${type}`}>
@@ -22,56 +21,39 @@ const saveData = (w, l) => {
   localStorage.setItem('wt_logs', JSON.stringify(l));
 };
 
-function calculateHours(start, end) {
+function calculateHours(start, end, lunchMins = 0) {
   if (!start || !end || start === '-' || end === '-') return 0;
   const [h1, m1] = start.split(':').map(Number);
   const [h2, m2] = end.split(':').map(Number);
   let d1 = new Date(); d1.setHours(h1, m1, 0);
   let d2 = new Date(); d2.setHours(h2, m2, 0);
   if (d2 < d1) d2.setDate(d2.getDate() + 1);
-  const diffMs = d2 - d1;
+  let diffMs = d2 - d1;
+  diffMs -= (lunchMins * 60000);
+  if (diffMs < 0) diffMs = 0;
   return Math.round((diffMs / 3600000) * 100) / 100;
 }
 
 const getEnhancedWorkers = () => {
   const { w, l } = loadData();
-  const now = new Date();
-  const sevenDaysAgo = new Date(now);
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const currentMonth = now.toISOString().slice(0, 7);
 
   const enhanced = w.map(worker => {
-      const workerLogs = l.filter(log => log.worker_id === worker.id);
+      const workerLogs = l.filter(log => log.worker_id === worker.id).sort((a, b) => new Date(b.date) - new Date(a.date));
       
-      let totalHours7Days = 0;
-      let totalHoursMonth = 0;
-      let weeklyDataArr = [0, 0, 0, 0, 0, 0, 0];
-
+      let totalAllTimeHours = 0;
       workerLogs.forEach(log => {
-          const logDate = new Date(log.date);
-          if (logDate >= sevenDaysAgo) {
-              totalHours7Days += log.hours;
-              weeklyDataArr[logDate.getDay()] += log.hours;
-          }
-          if (log.date.startsWith(currentMonth)) {
-              totalHoursMonth += log.hours;
+          if(log.status !== 'kelmadi') {
+              totalAllTimeHours += log.hours || 0;
           }
       });
+      
+      const rate = worker.hourlyRate || 20000;
+      const totalSalary = totalAllTimeHours * rate;
 
-      const weeklyData = [
-          { name: 'Dush', h: weeklyDataArr[1] },
-          { name: 'Sesh', h: weeklyDataArr[2] },
-          { name: 'Chor', h: weeklyDataArr[3] },
-          { name: 'Pay', h: weeklyDataArr[4] },
-          { name: 'Juma', h: weeklyDataArr[5] },
-          { name: 'Shan', h: weeklyDataArr[6] },
-          { name: 'Yak', h: weeklyDataArr[0] }
-      ];
-
-      return { ...worker, totalHours7Days, totalHoursMonth, weeklyData };
+      return { ...worker, hourlyRate: rate, logs: workerLogs, totalAllTimeHours, totalSalary };
   });
 
-  enhanced.sort((a, b) => b.totalHours7Days - a.totalHours7Days);
+  enhanced.sort((a, b) => b.totalAllTimeHours - a.totalAllTimeHours);
   return enhanced;
 };
 // ----------------------------
@@ -88,17 +70,24 @@ function App() {
   
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newWorkerData, setNewWorkerData] = useState({ name: '', start: '08:00', end: '16:00' });
+  const [newWorkerData, setNewWorkerData] = useState({ name: '', start: '08:00', end: '16:00', rate: 20000, lunch: 60 });
   
   const [selectedWorker, setSelectedWorker] = useState(null);
   const [showMaosh, setShowMaosh] = useState(false);
   
-  const [lang, setLang] = useState('uz');
+  // Rate Edit
+  const [editingRate, setEditingRate] = useState('');
+  const [editingLunch, setEditingLunch] = useState(60);
+  const [editingStart, setEditingStart] = useState('08:00');
+  const [editingEnd, setEditingEnd] = useState('16:00');
 
   useEffect(() => {
     if (auth) {
       fetchWorkers();
-      showToast('Welcome to WorkTrack!');
+      if(!localStorage.getItem('welcomed')) {
+         showToast('Welcome to WorkTrack!');
+         localStorage.setItem('welcomed', 'true');
+      }
     }
   }, [auth]);
 
@@ -122,7 +111,10 @@ function App() {
     setWorkers(data);
     if (selectedWorker) {
        const updated = data.find(w => w.id === selectedWorker.id);
-       if (updated) setSelectedWorker(updated);
+       if (updated) {
+           setSelectedWorker(updated);
+           setEditingRate(updated.hourlyRate);
+       }
     }
   };
 
@@ -139,20 +131,22 @@ function App() {
             const name = nameMatch[1];
             const start = times[0];
             const end = times[1];
-            saveWorkerTime(name, start, end);
+            saveWorkerTime(name, start, end, 'keldi', null, 60);
         }
       }
     }
   };
 
-  const saveWorkerTime = (name, start, end) => {
+  const saveWorkerTime = (name, start, end, status = 'keldi', rate = null, lunchMins = 0) => {
      let { w, l } = loadData();
      
      // Find or create worker
      let worker = w.find(wrk => wrk.name.toLowerCase() === name.toLowerCase());
      if (!worker) {
-         worker = { id: Date.now().toString(), name };
+         worker = { id: Date.now().toString(), name, hourlyRate: rate || 20000 };
          w.push(worker);
+     } else if (rate !== null) {
+         worker.hourlyRate = rate;
      }
 
      const today = new Date().toISOString().slice(0, 10);
@@ -161,24 +155,31 @@ function App() {
      if (existingLog) {
          existingLog.start_time = start;
          existingLog.end_time = end;
-         existingLog.hours = calculateHours(start, end);
+         existingLog.status = status;
+         existingLog.lunchMins = lunchMins;
+         existingLog.hours = status === 'kelmadi' ? 0 : calculateHours(start, end, lunchMins);
      } else {
-         const hours = calculateHours(start, end);
+         const hours = status === 'kelmadi' ? 0 : calculateHours(start, end, lunchMins);
          l.push({
              id: Date.now().toString() + Math.random().toString(),
              worker_id: worker.id,
              date: today,
              start_time: start,
              end_time: end,
+             lunchMins,
              hours,
-             status: 'keldi/ketdi'
+             status
          });
      }
 
      saveData(w, l);
-     showToast(`✅ ${name} saqlandi`);
+     showToast(`✅ Ma'lumot saqlandi`);
      setSearchInput('');
      fetchWorkers();
+  };
+
+  const markAbsent = (workerName) => {
+     saveWorkerTime(workerName, '-', '-', 'kelmadi', null, 0);
   };
 
   const handleModalSubmit = (e) => {
@@ -187,9 +188,9 @@ function App() {
         showToast("Ismni kiriting", "error");
         return;
      }
-     saveWorkerTime(newWorkerData.name, newWorkerData.start, newWorkerData.end);
+     saveWorkerTime(newWorkerData.name, newWorkerData.start, newWorkerData.end, 'keldi', Number(newWorkerData.rate), Number(newWorkerData.lunch));
      setShowAddModal(false);
-     setNewWorkerData({ name: '', start: '08:00', end: '16:00' });
+     setNewWorkerData({ name: '', start: '08:00', end: '16:00', rate: 20000, lunch: 60 });
   };
 
   const handleDeleteWorker = (e, id) => {
@@ -222,6 +223,18 @@ function App() {
      }
   };
 
+  const saveRate = () => {
+      if(!selectedWorker) return;
+      let { w, l } = loadData();
+      const target = w.find(wrk => wrk.id === selectedWorker.id);
+      if (target) {
+          target.hourlyRate = Number(editingRate);
+          saveData(w, l);
+          showToast("Ish haqi yangilandi", "success");
+          fetchWorkers();
+      }
+  };
+
   // Render Login Screen
   if (!auth) {
     return (
@@ -250,9 +263,6 @@ function App() {
 
   const showAll = searchInput.toLowerCase() === 'hamma ishchilar';
   const displayWorkers = showAll ? workers : searchInput ? workers.filter(w => w.name.toLowerCase().includes(searchInput.toLowerCase())) : [];
-
-  // Chart Colors
-  const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
   return (
     <>
@@ -318,7 +328,7 @@ function App() {
 
         {/* Worker Cards */}
         {displayWorkers.map((w, i) => (
-          <div className="worker-card" key={w.id} onClick={() => setSelectedWorker(w)}>
+          <div className="worker-card" key={w.id} onClick={() => { setSelectedWorker(w); setEditingRate(w.hourlyRate); }}>
             <div className="worker-card-header" style={{ width: '100%', cursor: 'pointer' }}>
               <div className="worker-info">
                 {showAll && <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#60a5fa' }}>{i + 1}</div>}
@@ -355,11 +365,15 @@ function App() {
                     <input type="text" placeholder="Masalan: Asadbek" value={newWorkerData.name} onChange={e => setNewWorkerData({...newWorkerData, name: e.target.value})} required />
                  </div>
                  <div className="form-group">
-                    <label>Kelgan vaqti (Soat:Daqiqa)</label>
+                    <label>Soatbay ish haqi (So'm)</label>
+                    <input type="number" value={newWorkerData.rate} onChange={e => setNewWorkerData({...newWorkerData, rate: e.target.value})} />
+                 </div>
+                 <div className="form-group">
+                    <label>Bugun Kelgan vaqti (Soat:Daqiqa)</label>
                     <input type="time" value={newWorkerData.start} onChange={e => setNewWorkerData({...newWorkerData, start: e.target.value})} />
                  </div>
                  <div className="form-group">
-                    <label>Ketgan vaqti (Soat:Daqiqa)</label>
+                    <label>Bugun Ketgan vaqti (Soat:Daqiqa)</label>
                     <input type="time" value={newWorkerData.end} onChange={e => setNewWorkerData({...newWorkerData, end: e.target.value})} />
                  </div>
                  <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 10 }}>Saqlash</button>
@@ -368,53 +382,92 @@ function App() {
         </div>
       )}
 
-      {/* Worker Stats Modal */}
+      {/* Worker Stats Modal (Full screen on mobile) */}
       {selectedWorker && (
-        <div className="modal-overlay">
-           <div className="modal-content large">
-              <button className="modal-close" onClick={() => setSelectedWorker(null)}><X size={24}/></button>
-              <h2 style={{ marginTop: 0, color: '#60a5fa' }}>{selectedWorker.name} - Statistikasi</h2>
+        <div className="fullscreen-overlay mobile-fullscreen">
+           <div className="fullscreen-content mobile-fullscreen-content">
               
-              <div className="stats-grid">
-                 <div className="stat-box">
-                    <h4>7 Kunlik (Jami)</h4>
-                    <div className="value">{selectedWorker.totalHours7Days} soat</div>
-                 </div>
-                 <div className="stat-box">
-                    <h4>Oylik (Jami)</h4>
-                    <div className="value">{selectedWorker.totalHoursMonth} soat</div>
-                 </div>
+              <div className="fs-header">
+                 <button className="fs-back" onClick={() => setSelectedWorker(null)}><ChevronLeft size={28}/> Orqaga</button>
+                 <h2 style={{ margin: 0, color: '#60a5fa' }}>{selectedWorker.name}</h2>
               </div>
+              
+              <div className="fs-body">
+                  {/* Financials & Rate */}
+                  <div className="fs-card glass-panel" style={{ marginBottom: 20 }}>
+                     <div style={{ display: 'flex', gap: 15, flexWrap: 'wrap' }}>
+                        <div style={{ flex: 1, minWidth: '120px' }}>
+                            <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Jami Ishlangan (Soat)</label>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{selectedWorker.totalAllTimeHours}</div>
+                        </div>
+                        <div style={{ flex: 1, minWidth: '150px' }}>
+                            <label style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Umumiy Maosh (So'm)</label>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#10b981' }}>
+                                {selectedWorker.totalSalary.toLocaleString()}
+                            </div>
+                        </div>
+                     </div>
+                     <div style={{ marginTop: 15, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 15, display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                        <div className="form-group" style={{ marginBottom: 0, flex: 1 }}>
+                            <label>1 Soatlik Narx (So'm)</label>
+                            <input type="number" value={editingRate} onChange={e => setEditingRate(e.target.value)} style={{ padding: '8px 12px' }}/>
+                        </div>
+                        <button className="btn btn-primary" onClick={saveRate} style={{ padding: '9px 15px' }}>Saqlash</button>
+                     </div>
+                  </div>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '30px', marginTop: '30px' }}>
-                 {/* Bar Chart */}
-                 <div style={{ flex: '1 1 300px', height: 250, background: 'rgba(0,0,0,0.2)', padding: 16, borderRadius: 12 }}>
-                    <h4 style={{ textAlign: 'center', color: '#94a3b8', margin: '0 0 15px 0' }}>Haftalik Progress</h4>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={selectedWorker.weeklyData || []}>
-                        <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false}/>
-                        <Tooltip cursor={{fill: 'rgba(255,255,255,0.05)'}} contentStyle={{backgroundColor: '#0f172a', border:'1px solid #333', borderRadius: 8}}/>
-                        <Bar dataKey="h" fill="#3b82f6" radius={[6,6,0,0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                 </div>
+                  {/* Actions for Today */}
+                  <div className="fs-card glass-panel" style={{ marginBottom: 20 }}>
+                     <h4 style={{ margin: '0 0 15px 0', color: '#f8fafc' }}>Bugungi kunni kiritish</h4>
+                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 15 }}>
+                         <div className="form-group" style={{ flex: 1, minWidth: '100px', marginBottom: 0 }}>
+                            <label>Kelgan vaqti</label>
+                            <input type="time" value={editingStart} onChange={e => setEditingStart(e.target.value)} />
+                         </div>
+                         <div className="form-group" style={{ flex: 1, minWidth: '100px', marginBottom: 0 }}>
+                            <label>Ketgan vaqti</label>
+                            <input type="time" value={editingEnd} onChange={e => setEditingEnd(e.target.value)} />
+                         </div>
+                         <div className="form-group" style={{ flex: 1, minWidth: '100px', marginBottom: 0 }}>
+                            <label>Obed (Daqiqa)</label>
+                            <input type="number" value={editingLunch} onChange={e => setEditingLunch(Number(e.target.value))} />
+                         </div>
+                     </div>
+                     <div style={{ display: 'flex', gap: 10 }}>
+                         <button className="btn btn-outline" style={{ flex: 1, justifyContent: 'center', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.4)', padding: '10px' }} onClick={() => saveWorkerTime(selectedWorker.name, editingStart, editingEnd, 'keldi', null, editingLunch)}>
+                             <Clock size={18}/> Keldi
+                         </button>
+                         <button className="btn btn-outline" style={{ flex: 1, justifyContent: 'center', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.4)', padding: '10px' }} onClick={() => markAbsent(selectedWorker.name)}>
+                             <UserX size={18}/> Kelmadi
+                         </button>
+                     </div>
+                  </div>
 
-                 {/* Donut Chart */}
-                 <div style={{ flex: '1 1 300px', height: 250, background: 'rgba(0,0,0,0.2)', padding: 16, borderRadius: 12 }}>
-                    <h4 style={{ textAlign: 'center', color: '#94a3b8', margin: '0 0 15px 0' }}>Oylik Norma</h4>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={[
-                           { name: 'Ishladi', value: selectedWorker.totalHoursMonth > 0 ? selectedWorker.totalHoursMonth : 1 },
-                           { name: 'Qoldi', value: 160 - selectedWorker.totalHoursMonth > 0 ? 160 - selectedWorker.totalHoursMonth : 159 }
-                        ]} innerRadius={50} outerRadius={80} paddingAngle={5} dataKey="value">
-                           <Cell fill="#10b981" />
-                           <Cell fill="rgba(255,255,255,0.05)" />
-                        </Pie>
-                        <Tooltip contentStyle={{backgroundColor: '#0f172a', border:'1px solid #333', borderRadius: 8}}/>
-                      </PieChart>
-                    </ResponsiveContainer>
-                 </div>
+                  {/* History List */}
+                  <h3 style={{ color: '#f8fafc', marginBottom: 15 }}>Tarix (Spiska)</h3>
+                  {selectedWorker.logs.length === 0 ? (
+                      <div style={{ color: '#94a3b8', textAlign: 'center', padding: '20px' }}>Hech qanday tarix yo'q</div>
+                  ) : (
+                      <div className="history-list">
+                          {selectedWorker.logs.map(log => (
+                              <div key={log.id} className="history-item">
+                                  <div className="history-date">
+                                      {new Date(log.date).toLocaleDateString('uz-UZ', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                                  </div>
+                                  <div className="history-details">
+                                      {log.status === 'kelmadi' ? (
+                                          <span style={{ color: '#ef4444', fontWeight: 'bold' }}>Kelmadi</span>
+                                      ) : (
+                                          <>
+                                            <span style={{ color: '#94a3b8' }}>{log.start_time} - {log.end_time}</span>
+                                            <span style={{ fontWeight: 'bold', color: '#60a5fa' }}>{log.hours} soat</span>
+                                          </>
+                                      )}
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  )}
               </div>
 
            </div>
