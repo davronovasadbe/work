@@ -9,6 +9,7 @@ const Toast = ({ message, type = 'success', onClose }) => (
   </div>
 );
 
+// --- LocalStorage Helpers ---
 const loadData = () => {
   const w = JSON.parse(localStorage.getItem('wt_workers') || '[]');
   const l = JSON.parse(localStorage.getItem('wt_logs') || '[]');
@@ -35,6 +36,11 @@ function calculateHours(start, end, lunchMins = 0) {
 
 const groupLogsByWeeks = (logs, rate) => {
     const ascLogs = [...logs].reverse();
+    // Assign absolute day numbers
+    ascLogs.forEach((log, index) => {
+        log.dayIndex = index + 1;
+    });
+
     const weeks = [];
     let currentWeekLogs = [];
     let weekIndex = 1;
@@ -95,6 +101,7 @@ const getEnhancedWorkers = () => {
   enhanced.sort((a, b) => b.totalAllTimeHours - a.totalAllTimeHours);
   return enhanced;
 };
+// ----------------------------
 
 function App() {
   const [auth, setAuth] = useState(localStorage.getItem('auth') === 'true');
@@ -104,14 +111,22 @@ function App() {
   const [workers, setWorkers] = useState([]);
   const [searchInput, setSearchInput] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  
+  // Worker Modal
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newWorkerData, setNewWorkerData] = useState({ name: '', start: '08:00', end: '16:00', rate: 20000, lunch: 60 });
+  const [newWorkerData, setNewWorkerData] = useState({ name: '', surname: '', rate: 20000 });
+  
   const [selectedWorker, setSelectedWorker] = useState(null);
   const [showMaosh, setShowMaosh] = useState(false);
+  
   const [editingRate, setEditingRate] = useState('');
-  const [editingLunch, setEditingLunch] = useState(60);
-  const [editingStart, setEditingStart] = useState('08:00');
-  const [editingEnd, setEditingEnd] = useState('16:00');
+  
+  // Log Addition state
+  const [showAddLog, setShowAddLog] = useState(false);
+  const [newLogLunch, setNewLogLunch] = useState(60);
+  const [newLogStart, setNewLogStart] = useState('08:00');
+  const [newLogEnd, setNewLogEnd] = useState('16:00');
+
   const [openWeeks, setOpenWeeks] = useState({});
   const toggleWeek = (id) => setOpenWeeks(prev => ({...prev, [id]: !prev[id]}));
   const [logToEdit, setLogToEdit] = useState(null);
@@ -148,6 +163,7 @@ function App() {
       setSelectedWorker(w);
       setEditingRate(w.hourlyRate);
       setOpenWeeks({});
+      setShowAddLog(false); // Reset add log view
   }
 
   const handleSmartInput = async (e) => {
@@ -158,19 +174,19 @@ function App() {
         const nameMatch = searchInput.match(/^([a-zA-Zа-яА-Я]+)/);
         const times = searchInput.match(/\d{1,2}:\d{2}/g);
         if (nameMatch && times && times.length === 2) {
-            saveWorkerTime(nameMatch[1], times[0], times[1], 'keldi', null, 60);
+            saveLogDirectly(nameMatch[1], times[0], times[1], 'keldi', 60);
         }
       }
     }
   };
 
-  const saveWorkerTime = (name, start, end, status = 'keldi', rate = null, lunchMins = 0) => {
+  const saveLogDirectly = (name, start, end, status = 'keldi', lunchMins = 0) => {
      let { w, l } = loadData();
-     let worker = w.find(wrk => wrk.name.toLowerCase() === name.toLowerCase());
+     let worker = w.find(wrk => wrk.name.toLowerCase().includes(name.toLowerCase()));
      if (!worker) {
-         worker = { id: Date.now().toString(), name, hourlyRate: rate || 20000 };
-         w.push(worker);
-     } else if (rate !== null) { worker.hourlyRate = rate; }
+         showToast("Bunday ishchi topilmadi!", "error");
+         return;
+     }
 
      const today = new Date().toISOString().slice(0, 10);
      let existingLog = l.find(log => log.worker_id === worker.id && log.date === today);
@@ -192,19 +208,54 @@ function App() {
      fetchWorkers();
   };
 
-  const markAbsent = (workerName) => saveWorkerTime(workerName, '-', '-', 'kelmadi', null, 0);
+  const saveNewLog = (status) => {
+     const today = new Date().toISOString().slice(0, 10);
+     let { w, l } = loadData();
+     let existingLog = l.find(log => log.worker_id === selectedWorker.id && log.date === today);
+     
+     if (existingLog) {
+         showToast("Bugun uchun ma'lumot allaqachon qo'shilgan! Uni tahrirlang.", "error");
+         setShowAddLog(false);
+         return;
+     }
+
+     const hours = status === 'kelmadi' ? 0 : calculateHours(newLogStart, newLogEnd, newLogLunch);
+     l.push({ 
+         id: Date.now().toString() + Math.random().toString(), 
+         worker_id: selectedWorker.id, 
+         date: today, 
+         start_time: newLogStart, 
+         end_time: newLogEnd, 
+         lunchMins: newLogLunch, 
+         hours, 
+         status 
+     });
+     
+     saveData(w, l);
+     showToast("✅ Kun qo'shildi");
+     setShowAddLog(false);
+     fetchWorkers();
+  };
 
   const handleModalSubmit = (e) => {
      e.preventDefault();
-     if (!newWorkerData.name) { showToast("Ismni kiriting", "error"); return; }
-     const { w } = loadData();
-     if (w.some(wrk => wrk.name.toLowerCase() === newWorkerData.name.toLowerCase())) {
+     const { name, surname, rate } = newWorkerData;
+     if (!name || !surname) { showToast("Ism va familyani kiriting", "error"); return; }
+     
+     const fullName = `${surname} ${name}`.trim();
+     let { w, l } = loadData();
+     
+     if (w.some(wrk => wrk.name.toLowerCase() === fullName.toLowerCase())) {
          showToast("Bu ismli ishchi allaqachon mavjud!", "error");
          return;
      }
-     saveWorkerTime(newWorkerData.name, newWorkerData.start, newWorkerData.end, 'keldi', Number(newWorkerData.rate), Number(newWorkerData.lunch));
+
+     w.push({ id: Date.now().toString(), name: fullName, hourlyRate: Number(rate) });
+     saveData(w, l);
+     showToast("✅ Yangi ishchi yaratildi");
      setShowAddModal(false);
-     setNewWorkerData({ name: '', start: '08:00', end: '16:00', rate: 20000, lunch: 60 });
+     setNewWorkerData({ name: '', surname: '', rate: 20000 });
+     fetchWorkers();
   };
 
   const handleDeleteWorker = (e, id) => {
@@ -222,7 +273,7 @@ function App() {
 
   const handleEditWorker = (e, worker) => {
      e.stopPropagation();
-     const newName = window.prompt("Ishchining yangi ismini kiriting:", worker.name);
+     const newName = window.prompt("Ishchining yangi ismini (familyasini) kiriting:", worker.name);
      if (newName && newName.trim() !== "") {
          let { w, l } = loadData();
          if (w.some(wrk => wrk.name.toLowerCase() === newName.toLowerCase() && wrk.id !== worker.id)) {
@@ -267,10 +318,21 @@ function App() {
       }
   };
 
+  const openAddLogUI = () => {
+     const today = new Date().toISOString().slice(0, 10);
+     const existingLog = selectedWorker.logs.find(log => log.date === today);
+     if (existingLog) {
+         showToast("Bugun uchun ma'lumot qoshilgan. Iltimos quyidagi tarix ro'yxatidan tahrirlang.", "error");
+     } else {
+         setShowAddLog(true);
+     }
+  };
+
   const renderLogItem = (log) => (
       <div key={log.id} className="history-item">
           <div className="history-date">
-              {new Date(log.date).toLocaleDateString('uz-UZ', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+              <span style={{color: '#60a5fa', fontWeight: 'bold', fontSize: '1.2rem', marginRight: 10}}>{log.dayIndex}-kun</span> 
+              <span style={{color: '#94a3b8', fontSize: '0.9rem'}}>({new Date(log.date).toLocaleDateString('uz-UZ', { month: 'short', day: 'numeric' })})</span>
           </div>
           <div className="history-details">
               {log.status === 'kelmadi' ? (
@@ -365,28 +427,28 @@ function App() {
       </div>
       )}
 
+      {/* Add Worker Modal */}
       {showAddModal && (
         <div className="modal-overlay">
            <div className="modal-content">
               <button className="modal-close" onClick={() => setShowAddModal(false)}><X size={24}/></button>
               <h2 style={{ marginTop: 0, marginBottom: 24 }}>Yangi ishchi qo'shish</h2>
               <form onSubmit={handleModalSubmit}>
-                 <div className="form-group"><label>Ishchi Ismi yoki Familyasi</label><input type="text" placeholder="Ism yoki Familya" value={newWorkerData.name} onChange={e => setNewWorkerData({...newWorkerData, name: e.target.value})} required /></div>
+                 <div className="form-group"><label>Familyasi</label><input type="text" placeholder="Masalan: Davronov" value={newWorkerData.surname} onChange={e => setNewWorkerData({...newWorkerData, surname: e.target.value})} required /></div>
+                 <div className="form-group"><label>Ismi</label><input type="text" placeholder="Masalan: Asadbek" value={newWorkerData.name} onChange={e => setNewWorkerData({...newWorkerData, name: e.target.value})} required /></div>
                  <div className="form-group"><label>Soatbay ish haqi (So'm)</label><input type="number" value={newWorkerData.rate} onChange={e => setNewWorkerData({...newWorkerData, rate: e.target.value})} /></div>
-                 <div className="form-group"><label>Bugun Kelgan vaqti</label><input type="time" value={newWorkerData.start} onChange={e => setNewWorkerData({...newWorkerData, start: e.target.value})} /></div>
-                 <div className="form-group"><label>Bugun Ketgan vaqti</label><input type="time" value={newWorkerData.end} onChange={e => setNewWorkerData({...newWorkerData, end: e.target.value})} /></div>
-                 <div className="form-group"><label>Obed (Daqiqa)</label><input type="number" value={newWorkerData.lunch} onChange={e => setNewWorkerData({...newWorkerData, lunch: Number(e.target.value)})} /></div>
                  <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 10 }}>Saqlash</button>
               </form>
            </div>
         </div>
       )}
 
+      {/* Edit Log Modal */}
       {logToEdit && (
         <div className="modal-overlay" style={{ zIndex: 2000 }}>
            <div className="modal-content">
               <button className="modal-close" onClick={() => setLogToEdit(null)}><X size={24}/></button>
-              <h2 style={{ marginTop: 0 }}>Kunni Tahrirlash</h2>
+              <h2 style={{ marginTop: 0 }}>{logToEdit.dayIndex}-kunni Tahrirlash</h2>
               <p style={{ color: '#94a3b8' }}>{new Date(logToEdit.date).toLocaleDateString('uz-UZ')}</p>
               <form onSubmit={saveEditLog}>
                  <div className="form-group">
@@ -430,18 +492,30 @@ function App() {
                         <button className="btn btn-primary" onClick={saveRate} style={{ padding: '9px 15px' }}>Saqlash</button>
                      </div>
                   </div>
-                  <div className="fs-card glass-panel" style={{ marginBottom: 20 }}>
-                     <h4 style={{ margin: '0 0 15px 0', color: '#f8fafc' }}>Bugungi kunni kiritish</h4>
-                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 15 }}>
-                         <div className="form-group" style={{ flex: 1, minWidth: '100px', marginBottom: 0 }}><label>Kelgan vaqti</label><input type="time" value={editingStart} onChange={e => setEditingStart(e.target.value)} /></div>
-                         <div className="form-group" style={{ flex: 1, minWidth: '100px', marginBottom: 0 }}><label>Ketgan vaqti</label><input type="time" value={editingEnd} onChange={e => setEditingEnd(e.target.value)} /></div>
-                         <div className="form-group" style={{ flex: 1, minWidth: '100px', marginBottom: 0 }}><label>Obed (Daqiqa)</label><input type="number" value={editingLunch} onChange={e => setEditingLunch(Number(e.target.value))} /></div>
-                     </div>
-                     <div style={{ display: 'flex', gap: 10 }}>
-                         <button className="btn btn-outline" style={{ flex: 1, justifyContent: 'center', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.4)', padding: '10px' }} onClick={() => saveWorkerTime(selectedWorker.name, editingStart, editingEnd, 'keldi', null, editingLunch)}><Clock size={18}/> Keldi</button>
-                         <button className="btn btn-outline" style={{ flex: 1, justifyContent: 'center', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.4)', padding: '10px' }} onClick={() => markAbsent(selectedWorker.name)}><UserX size={18}/> Kelmadi</button>
-                     </div>
-                  </div>
+
+                  {/* Add New Log Section */}
+                  {!showAddLog ? (
+                      <button className="btn btn-primary" onClick={openAddLogUI} style={{ width: '100%', justifyContent: 'center', padding: '15px', fontSize: '1.1rem', marginBottom: '20px', borderRadius: '12px' }}>
+                          <Plus size={24} style={{ marginRight: '8px' }}/> Bugungi ish vaqtini qo'shish
+                      </button>
+                  ) : (
+                      <div className="fs-card glass-panel" style={{ marginBottom: 20 }}>
+                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+                            <h4 style={{ margin: 0, color: '#f8fafc' }}>Bugungi kunni kiritish</h4>
+                            <button className="modal-close" onClick={() => setShowAddLog(false)} style={{ position: 'relative', top: 0, right: 0 }}><X size={20}/></button>
+                         </div>
+                         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 15 }}>
+                             <div className="form-group" style={{ flex: 1, minWidth: '100px', marginBottom: 0 }}><label>Kelgan vaqti</label><input type="time" value={newLogStart} onChange={e => setNewLogStart(e.target.value)} /></div>
+                             <div className="form-group" style={{ flex: 1, minWidth: '100px', marginBottom: 0 }}><label>Ketgan vaqti</label><input type="time" value={newLogEnd} onChange={e => setNewLogEnd(e.target.value)} /></div>
+                             <div className="form-group" style={{ flex: 1, minWidth: '100px', marginBottom: 0 }}><label>Obed (Daqiqa)</label><input type="number" value={newLogLunch} onChange={e => setNewLogLunch(Number(e.target.value))} /></div>
+                         </div>
+                         <div style={{ display: 'flex', gap: 10 }}>
+                             <button className="btn btn-outline" style={{ flex: 1, justifyContent: 'center', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.4)', padding: '10px' }} onClick={() => saveNewLog('keldi')}><Clock size={18}/> Keldi</button>
+                             <button className="btn btn-outline" style={{ flex: 1, justifyContent: 'center', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.4)', padding: '10px' }} onClick={() => saveNewLog('kelmadi')}><UserX size={18}/> Kelmadi</button>
+                         </div>
+                      </div>
+                  )}
+
                   <h3 style={{ color: '#f8fafc', marginBottom: 15 }}>Kunlik Tarix (Spiska)</h3>
                   {selectedWorker.logs.length === 0 ? (
                       <div style={{ color: '#94a3b8', textAlign: 'center', padding: '20px' }}>Hech qanday tarix yo'q</div>
