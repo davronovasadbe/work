@@ -495,9 +495,31 @@ function App() {
 
                   {/* Add New Log Section */}
                   {!showAddLog ? (
-                      <button className="btn btn-primary" onClick={openAddLogUI} style={{ width: '100%', justifyContent: 'center', padding: '15px', fontSize: '1.1rem', marginBottom: '20px', borderRadius: '12px' }}>
-                          <Plus size={24} style={{ marginRight: '8px' }}/> Bugungi ish vaqtini qo'shish
-                      </button>
+                      <div 
+                          className="worker-card" 
+                          onClick={openAddLogUI} 
+                          style={{ 
+                              marginBottom: '25px', 
+                              cursor: 'pointer', 
+                              display: 'flex', 
+                              justifyContent: 'center', 
+                              alignItems: 'center',
+                              padding: '24px',
+                              border: '2px dashed rgba(96, 165, 250, 0.5)',
+                              background: 'rgba(96, 165, 250, 0.05)',
+                              borderRadius: '16px',
+                              transition: 'all 0.2s ease-in-out'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.background = 'rgba(96, 165, 250, 0.1)'}
+                          onMouseOut={(e) => e.currentTarget.style.background = 'rgba(96, 165, 250, 0.05)'}
+                      >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#60a5fa', fontSize: '1.2rem', fontWeight: 'bold' }}>
+                              <div style={{ background: 'rgba(96,165,250,0.2)', padding: '8px', borderRadius: '50%', display: 'flex' }}>
+                                  <Plus size={24} color="#60a5fa" />
+                              </div>
+                              Bugungi ish vaqtini qo'shish
+                          </div>
+                      </div>
                   ) : (
                       <div className="fs-card glass-panel" style={{ marginBottom: 20 }}>
                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
